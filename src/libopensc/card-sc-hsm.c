@@ -1,7 +1,7 @@
 /*
  * card-sc-hsm.c
  *
- * Read-only driver for the SmartCard-HSM light-weight hardware security module
+ * Driver for the SmartCard-HSM, a light-weight hardware security module
  *
  * Copyright (C) 2012 Andreas Schwier, CardContact, Minden, Germany, and others
  *
@@ -149,6 +149,66 @@ static int sc_hsm_read_binary(sc_card_t *card,
 
 
 
+static int sc_hsm_update_binary(sc_card_t *card,
+			       unsigned int idx, u8 *buf, size_t count,
+			       unsigned long flags)
+{
+	sc_context_t *ctx = card->ctx;
+	sc_apdu_t apdu;
+	u8 recvbuf[SC_MAX_APDU_BUFFER_SIZE];
+	u8 *cmdbuff, *p;
+	size_t len;
+	int r;
+
+	if (idx > 0xffff) {
+		sc_debug(ctx, SC_LOG_DEBUG_NORMAL, "invalid EF offset: 0x%X > 0xFFFF", idx);
+		return SC_ERROR_OFFSET_TOO_LARGE;
+	}
+
+	cmdbuff = alloca(8 + count);
+	if (!cmdbuff) {
+		LOG_FUNC_RETURN(card->ctx, SC_ERROR_OUT_OF_MEMORY);
+	}
+
+	p = cmdbuff;
+	*p++ = 0x54;
+	*p++ = 0x02;
+	*p++ = (idx >> 8) & 0xFF;
+	*p++ = idx & 0xFF;
+	*p++ = 0x53;
+	if (count < 128) {
+		*p++ = count;
+		len = 6;
+	} else if (count < 256) {
+		*p++ = 0x81;
+		*p++ = count;
+		len = 7;
+	} else {
+		*p++ = 0x82;
+		*p++ = count >> 8;
+		*p++ = count & 0xFF;
+		len = 8;
+	}
+
+	memcpy(p, buf, count);
+	len += count;
+
+	sc_format_apdu(card, &apdu, SC_APDU_CASE_3_SHORT, 0xD7, 0x00, 0x00);
+	apdu.data = cmdbuff;
+	apdu.datalen = len;
+	apdu.lc = len;
+
+	r = sc_transmit_apdu(card, &apdu);
+	LOG_TEST_RET(ctx, r, "APDU transmit failed");
+
+	r =  sc_check_sw(card, apdu.sw1, apdu.sw2);
+	LOG_TEST_RET(ctx, r, "Check SW error");
+
+	LOG_FUNC_RETURN(ctx, count);
+}
+
+
+
 static int sc_hsm_list_files(sc_card_t *card, u8 * buf, size_t buflen)
 {
 	sc_apdu_t apdu;
@@ -177,6 +237,60 @@ static int sc_hsm_list_files(sc_card_t *card, u8 * buf, size_t buflen)
 	memcpy(buf, recvbuf, buflen);
 
 	LOG_FUNC_RETURN(card->ctx, apdu.resplen);
+}
+
+
+
+static int sc_hsm_create_file(sc_card_t *card, sc_file_t *file)
+{
+	sc_context_t *ctx = card->ctx;
+	sc_apdu_t apdu;
+	u8 cmdbuff[] = { 0x54, 0x02, 0x00, 0x00, 0x53, 0x00 };
+	int r;
+
+	sc_format_apdu(card, &apdu, SC_APDU_CASE_3_SHORT, 0xD7, file->id >> 8, file->id & 0xFF);
+	apdu.data = cmdbuff;
+	apdu.datalen = sizeof(cmdbuff);
+	apdu.lc = sizeof(cmdbuff);
+
+	r = sc_transmit_apdu(card, &apdu);
+	LOG_TEST_RET(ctx, r, "APDU transmit failed");
+
+	r =  sc_check_sw(card, apdu.sw1, apdu.sw2);
+	LOG_TEST_RET(ctx, r, "Check SW error");
+
+	LOG_FUNC_RETURN(ctx, SC_SUCCESS);
+}
+
+
+
+static int sc_hsm_delete_file(sc_card_t *card, const sc_path_t *path)
+{
+	sc_context_t *ctx = card->ctx;
+	sc_apdu_t apdu;
+	u8 sbuf[2];
+	int r;
+
+	if ((path->type != SC_PATH_TYPE_FILE_ID) || (path->len != 2)) {
+		sc_debug(card->ctx, SC_LOG_DEBUG_NORMAL, "File type has to be SC_PATH_TYPE_FILE_ID");
+		LOG_FUNC_RETURN(card->ctx, SC_ERROR_INVALID_ARGUMENTS);
+	}
+
+	sbuf[0] = path->value[0];
+	sbuf[1] = path->value[1];
+
+	sc_format_apdu(card, &apdu, SC_APDU_CASE_3_SHORT, 0xE4, 0x02, 0x00);
+	apdu.data = sbuf;
+	apdu.datalen = sizeof(sbuf);
+	apdu.lc = sizeof(sbuf);
+
+	r = sc_transmit_apdu(card, &apdu);
+	LOG_TEST_RET(ctx, r, "APDU transmit failed");
+
+	r =  sc_check_sw(card, apdu.sw1, apdu.sw2);
+	LOG_TEST_RET(ctx, r, "Check SW error");
+
+	LOG_FUNC_RETURN(ctx, SC_SUCCESS);
 }
 
 
@@ -327,7 +441,7 @@ static int sc_hsm_compute_signature(sc_card_t *card,
 	r = sc_transmit_apdu(card, &apdu);
 	LOG_TEST_RET(card->ctx, r, "APDU transmit failed");
 	if (apdu.sw1 == 0x90 && apdu.sw2 == 0x00) {
-		size_t len;
+		int len;
 
 		if ((priv->algorithm & 0xF0) == ALGO_EC_RAW) {
 			len = sc_hsm_decode_ecdsa_signature(card, apdu.resp, apdu.resplen, out, outlen);
@@ -463,6 +577,8 @@ static int sc_hsm_init(struct sc_card *card)
 	_sc_card_add_ec_alg(card, 320, flags, ext_flags);
 
 	card->caps |= SC_CARD_CAP_RNG|SC_CARD_CAP_APDU_EXT;
+
+	card->max_send_size = 248;		// because of odd ins in UPDATE BINARY
 	return 0;
 }
 
@@ -491,7 +607,10 @@ static struct sc_card_driver * sc_get_driver(void)
 	sc_hsm_ops.match_card        = sc_hsm_match_card;
 	sc_hsm_ops.select_file       = sc_hsm_select_file;
 	sc_hsm_ops.read_binary       = sc_hsm_read_binary;
+	sc_hsm_ops.update_binary     = sc_hsm_update_binary;
 	sc_hsm_ops.list_files        = sc_hsm_list_files;
+	sc_hsm_ops.create_file       = sc_hsm_create_file;
+	sc_hsm_ops.delete_file       = sc_hsm_delete_file;
 	sc_hsm_ops.set_security_env  = sc_hsm_set_security_env;
 	sc_hsm_ops.compute_signature = sc_hsm_compute_signature;
 	sc_hsm_ops.decipher          = sc_hsm_decipher;
@@ -504,9 +623,6 @@ static struct sc_card_driver * sc_get_driver(void)
 	sc_hsm_ops.write_record      = NULL;
 	sc_hsm_ops.append_record     = NULL;
 	sc_hsm_ops.update_record     = NULL;
-	sc_hsm_ops.update_binary     = NULL;
-	sc_hsm_ops.create_file       = NULL;
-	sc_hsm_ops.delete_file       = NULL;
 
 	return &sc_hsm_drv;
 }
