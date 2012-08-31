@@ -169,7 +169,7 @@ static int sc_hsm_update_binary(sc_card_t *card,
 		return SC_ERROR_OFFSET_TOO_LARGE;
 	}
 
-	cmdbuff = alloca(8 + count);
+	cmdbuff = malloc(8 + count);
 	if (!cmdbuff) {
 		LOG_FUNC_RETURN(card->ctx, SC_ERROR_OUT_OF_MEMORY);
 	}
@@ -197,12 +197,13 @@ static int sc_hsm_update_binary(sc_card_t *card,
 	memcpy(p, buf, count);
 	len += count;
 
-	sc_format_apdu(card, &apdu, SC_APDU_CASE_3_SHORT, 0xD7, 0x00, 0x00);
+	sc_format_apdu(card, &apdu, SC_APDU_CASE_3, 0xD7, 0x00, 0x00);
 	apdu.data = cmdbuff;
 	apdu.datalen = len;
 	apdu.lc = len;
 
 	r = sc_transmit_apdu(card, &apdu);
+	free(cmdbuff);
 	LOG_TEST_RET(ctx, r, "APDU transmit failed");
 
 	r =  sc_check_sw(card, apdu.sw1, apdu.sw2);

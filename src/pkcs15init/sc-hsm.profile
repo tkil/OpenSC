@@ -64,21 +64,6 @@ filesystem {
 			EF PKCS15-CDF {
 				acl		= $unprotected;
 			}
-
-			# This template defines files for keys, certificates etc.
-			#
-			# When instantiating the template, each file id will be
-			# combined with the last octet of the object's pkcs15 id
-			# to form a unique file ID.
-#			template key-domain {
-
-				# This is a dummy entry - pkcs15-init insists that
-				# this is present
-#				EF private-key {
-#					file-id	= 5F48;
-#					ACL	= *=NEVER, CRYPTO=$PIN, UPDATE=CHV3;
-#				}
-#			}
 		}
 	}
 }
