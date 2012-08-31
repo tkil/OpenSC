@@ -80,6 +80,10 @@ static int sc_hsm_select_file(sc_card_t *card,
 	sc_file_t *file = NULL;
 
 	if (file_out == NULL) {				// Versions before 0.16 of the SmartCard-HSM do not support P2='0C'
+		if (!in_path->len && in_path->aid.len) {
+			sc_log(card->ctx, "Preventing reselection of applet which would clear the security state");
+			return SC_SUCCESS;
+		}
 		rv = sc_hsm_select_file(card, in_path, &file);
 		if (file != NULL) {
 			sc_file_free(file);
@@ -88,7 +92,7 @@ static int sc_hsm_select_file(sc_card_t *card,
 	}
 
 	if ((in_path->len == 2) && (in_path->value[0] == 0x3F) && (in_path->value[1] == 0x00)) {
-		// The SmartCard-HSM is an applet that is not default selected. Simultate selection of the MF
+		// The SmartCard-HSM is an applet that is not default selected. Simulate selection of the MF
 		file = sc_file_new();
 		if (file == NULL)
 			LOG_FUNC_RETURN(card->ctx, SC_ERROR_OUT_OF_MEMORY);
@@ -521,6 +525,8 @@ static int sc_hsm_get_serialnr(sc_card_t *card, sc_serial_number_t *serial)
 {
 	sc_hsm_private_data_t *priv = (sc_hsm_private_data_t *) card->drv_data;
 
+	LOG_FUNC_CALLED(card->ctx);
+
 	if (!priv->serialno) {
 		return SC_ERROR_OBJECT_NOT_FOUND;
 	}
@@ -532,11 +538,52 @@ static int sc_hsm_get_serialnr(sc_card_t *card, sc_serial_number_t *serial)
 
 
 
+static int sc_hsm_generate_keypair(sc_card_t *card, sc_cardctl_sc_hsm_keygen_info_t *keyinfo)
+{
+	sc_hsm_private_data_t *priv = (sc_hsm_private_data_t *) card->drv_data;
+	u8 rbuf[1024];
+	int r;
+	sc_apdu_t apdu;
+
+	LOG_FUNC_CALLED(card->ctx);
+
+	sc_format_apdu(card, &apdu, SC_APDU_CASE_4_EXT, 0x46, keyinfo->key_id, keyinfo->auth_key_id);
+	apdu.cla = 0x00;
+	apdu.resp = rbuf;
+	apdu.resplen = sizeof(rbuf);
+	apdu.le = 0;
+
+	apdu.data = keyinfo->gakprequest;
+	apdu.lc = keyinfo->gakprequest_len;
+	apdu.datalen = keyinfo->gakprequest_len;
+
+	r = sc_transmit_apdu(card, &apdu);
+	LOG_TEST_RET(card->ctx, r, "APDU transmit failed");
+
+	r =  sc_check_sw(card, apdu.sw1, apdu.sw2);
+	LOG_TEST_RET(card->ctx, r, "Check SW error");
+
+	keyinfo->gakpresponse_len = apdu.resplen;
+	keyinfo->gakpresponse = malloc(apdu.resplen);
+
+	if (keyinfo->gakpresponse == NULL) {
+		LOG_FUNC_RETURN(card->ctx, SC_ERROR_OUT_OF_MEMORY);
+	}
+
+	memcpy(keyinfo->gakpresponse, apdu.resp, apdu.resplen);
+
+	LOG_FUNC_RETURN(card->ctx, SC_SUCCESS);
+}
+
+
+
 static int sc_hsm_card_ctl(sc_card_t *card, unsigned long cmd, void *ptr)
 {
 	switch (cmd) {
 	case SC_CARDCTL_GET_SERIALNR:
 		return sc_hsm_get_serialnr(card, (sc_serial_number_t *)ptr);
+	case SC_CARDCTL_SC_HSM_GENERATE_KEY:
+		return sc_hsm_generate_keypair(card, (sc_cardctl_sc_hsm_keygen_info_t *)ptr);
 	}
 	return SC_ERROR_NOT_SUPPORTED;
 }
@@ -556,7 +603,7 @@ static int sc_hsm_init(struct sc_card *card)
 
 	card->drv_data = priv;
 
-	flags = SC_ALGORITHM_RSA_RAW;
+	flags = SC_ALGORITHM_RSA_RAW|SC_ALGORITHM_ONBOARD_KEY_GEN;
 
 	_sc_card_add_rsa_alg(card, 1024, flags, 0);
 	_sc_card_add_rsa_alg(card, 1536, flags, 0);
@@ -566,7 +613,8 @@ static int sc_hsm_init(struct sc_card *card)
 		SC_ALGORITHM_ECDSA_HASH_NONE|
 		SC_ALGORITHM_ECDSA_HASH_SHA1|
 		SC_ALGORITHM_ECDSA_HASH_SHA224|
-		SC_ALGORITHM_ECDSA_HASH_SHA256;
+		SC_ALGORITHM_ECDSA_HASH_SHA256|
+		SC_ALGORITHM_ONBOARD_KEY_GEN;
 
 	ext_flags = SC_ALGORITHM_EXT_EC_F_P|
 		    SC_ALGORITHM_EXT_EC_ECPARAMETERS|
