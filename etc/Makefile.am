@@ -3,6 +3,8 @@ DISTCLEANFILES = opensc.conf opensc.conf.win
 
 EXTRA_DIST = Makefile.mak
 
+EXTRA_DIST = Makefile.mak
+
 SUFFIXES = .in
 
 dist_noinst_DATA = opensc.conf.in opensc.conf.win.in
