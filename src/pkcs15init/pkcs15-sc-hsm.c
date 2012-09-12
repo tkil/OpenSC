@@ -360,6 +360,9 @@ static int sc_hsm_emu_delete_object(struct sc_profile *profile, struct sc_pkcs15
 	case SC_PKCS15_TYPE_DATA_OBJECT:
 		r = sc_delete_file(p15card->card, path);
 		break;
+	case SC_PKCS15_TYPE_PUBKEY:
+		r = SC_SUCCESS;
+		break;
 	default:
 		r = SC_ERROR_NOT_IMPLEMENTED;
 		break;
@@ -422,6 +425,7 @@ static int sc_hsm_emu_update_any_df(struct sc_profile *profile, struct sc_pkcs15
 		case SC_PKCS15_TYPE_PRKEY:
 			rv = sc_hsm_delete_ef(p15card, PRKD_PREFIX, ((struct sc_pkcs15_prkey_info *)object->data)->key_reference);
 			break;
+		case SC_PKCS15_TYPE_PUBKEY:
 		case SC_PKCS15_TYPE_CERT:
 			rv = SC_SUCCESS;
 			break;
@@ -447,6 +451,7 @@ static int sc_hsm_emu_update_any_df(struct sc_profile *profile, struct sc_pkcs15
 			rv = sc_hsm_emu_update_dcod(profile, p15card, object);
 			break;
 		}
+		break;
 	}
 	SC_FUNC_RETURN(ctx, 1, rv);
 }
