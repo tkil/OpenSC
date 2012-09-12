@@ -498,7 +498,7 @@ static int sc_pkcs15emu_sc_hsm_init (sc_pkcs15_card_t * p15card)
 		LOG_FUNC_RETURN(card->ctx, r);
 
 	filelistlength = sc_list_files(card, filelist, sizeof(filelist));
-	LOG_TEST_RET(card->ctx, r, "Could not enumerate file and key identifier");
+	LOG_TEST_RET(card->ctx, filelistlength, "Could not enumerate file and key identifier");
 
 	for (i = 0; i < filelistlength; i += 2) {
 		switch(filelist[i]) {

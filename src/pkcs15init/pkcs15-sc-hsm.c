@@ -111,6 +111,32 @@ static int sc_hsm_create_key(sc_profile_t *profile, sc_pkcs15_card_t *p15card,
 
 
 
+static int sc_hsm_determine_free_id(struct sc_pkcs15_card *p15card, u8 range)
+{
+	struct sc_card *card = p15card->card;
+	u8 filelist[MAX_EXT_APDU_LENGTH];
+	int filelistlength, i, j;
+
+	LOG_FUNC_CALLED(p15card->card->ctx);
+
+	filelistlength = sc_list_files(card, filelist, sizeof(filelist));
+	LOG_TEST_RET(card->ctx, filelistlength, "Could not enumerate file and key identifier");
+
+	for (j = 0; j < 256; j++) {
+		for (i = 0; i < filelistlength; i += 2) {
+			if ((filelist[i] == range) && (filelist[i + 1] == j)) {
+				break;
+			}
+		}
+		if (i >= filelistlength) {
+			LOG_FUNC_RETURN(p15card->card->ctx, j);
+		}
+	}
+	LOG_FUNC_RETURN(p15card->card->ctx, SC_ERROR_NOT_ENOUGH_MEMORY);
+}
+
+
+
 static int sc_hsm_generate_key(struct sc_profile *profile, struct sc_pkcs15_card *p15card,
 															struct sc_pkcs15_object *object,
 															struct sc_pkcs15_pubkey *pubkey)
@@ -131,8 +157,10 @@ static int sc_hsm_generate_key(struct sc_profile *profile, struct sc_pkcs15_card
 	LOG_FUNC_CALLED(p15card->card->ctx);
 
 	if ((key_info->id.len != 1) || (key_info->id.value[0] == 0)) {
-		sc_log(ctx, "Key ID must be one byte and between 1 and 255");
-		LOG_FUNC_RETURN(ctx, SC_ERROR_INVALID_ARGUMENTS);
+		key_info->key_reference = sc_hsm_determine_free_id(p15card, KEY_PREFIX);
+		LOG_TEST_RET(card->ctx, key_info->key_reference, "Could not determine key reference");
+	} else {
+		key_info->key_reference = key_info->id.value[0];
 	}
 
 	memset(&cvc, 0, sizeof(cvc));
@@ -159,8 +187,7 @@ static int sc_hsm_generate_key(struct sc_profile *profile, struct sc_pkcs15_card
 	sc_asn1_read_tag(&cvcpo, cvclen, &cla, &tag, &taglen);
 	sc_asn1_read_tag(&cvcpo, cvclen, &cla, &tag, &taglen);
 
-	key_info->key_reference = key_info->id.value[0];
-	sc_hsm_keyinfo.key_id = key_info->id.value[0];
+	sc_hsm_keyinfo.key_id = key_info->key_reference;
 	sc_hsm_keyinfo.auth_key_id = 0;
 	sc_hsm_keyinfo.gakprequest = cvcpo;
 	sc_hsm_keyinfo.gakprequest_len = taglen;
