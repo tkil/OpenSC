@@ -299,13 +299,17 @@ static int sc_hsm_emu_store_binary(struct sc_pkcs15_card *p15card, struct sc_pro
 	u8 id[2];
 	int r;
 
-	id[0] = DATA_PREFIX;
+	if (object->flags & SC_PKCS15_CO_FLAG_PRIVATE) {
+		id[0] = PROT_DATA_PREFIX;
+	} else {
+		id[0] = DATA_PREFIX;
+	}
 	id[1] = data_info->id.value[0];
 
 	sc_path_set(&path, SC_PATH_TYPE_FILE_ID, id, 2, 0, -1);
 	data_info->path = path;
 
-	r = sc_hsm_update_ef(p15card, DATA_PREFIX, data_info->id.value[0], 1, data->value, data->len);
+	r = sc_hsm_update_ef(p15card, id[0], data_info->id.value[0], 1, data->value, data->len);
 	return r;
 }
 
