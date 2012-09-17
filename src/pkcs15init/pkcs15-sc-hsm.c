@@ -51,7 +51,7 @@ static int sc_hsm_delete_ef(sc_pkcs15_card_t *p15card, u8 prefix, u8 id)
 	fid[0] = prefix;
 	fid[1] = id;
 
-	sc_path_set(&path, SC_PATH_TYPE_FILE_ID, fid, 2, 0, 0);
+	sc_path_set(&path, SC_PATH_TYPE_FILE_ID, fid, 2, 0, -1);
 
 	r = sc_delete_file(card, &path);
 	LOG_TEST_RET(card->ctx, r, "Could not delete file");
@@ -73,7 +73,7 @@ static int sc_hsm_update_ef(sc_pkcs15_card_t *p15card, u8 prefix, u8 id, int era
 	fid[0] = prefix;
 	fid[1] = id;
 
-	sc_path_set(&path, SC_PATH_TYPE_FILE_ID, fid, 2, 0, 0);
+	sc_path_set(&path, SC_PATH_TYPE_FILE_ID, fid, 2, 0, -1);
 
 	r = sc_select_file(card, &path, NULL);
 
@@ -302,7 +302,7 @@ static int sc_hsm_emu_store_binary(struct sc_pkcs15_card *p15card, struct sc_pro
 	id[0] = DATA_PREFIX;
 	id[1] = data_info->id.value[0];
 
-	sc_path_set(&path, SC_PATH_TYPE_FILE_ID, id, 2, 0, 0);
+	sc_path_set(&path, SC_PATH_TYPE_FILE_ID, id, 2, 0, -1);
 	data_info->path = path;
 
 	r = sc_hsm_update_ef(p15card, DATA_PREFIX, data_info->id.value[0], 1, data->value, data->len);

@@ -32,8 +32,7 @@
 #include "card-sc-hsm.h"
 
 
-/* Our AID */
-static struct sc_aid sc_hsm_aid = { { 0xE8,0x2B,0x06,0x01,0x04,0x01,0x81,0xC3,0x1F,0x02,0x01 }, 11 };
+extern struct sc_aid sc_hsm_aid;
 
 
 void sc_hsm_set_serialnr(sc_card_t *card, char *serial);
