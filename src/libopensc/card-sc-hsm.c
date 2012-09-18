@@ -260,6 +260,7 @@ static int sc_hsm_list_files(sc_card_t *card, u8 * buf, size_t buflen)
 	if ((r == SC_ERROR_TRANSMIT_FAILED) && (!priv->noExtLength)) {
 		sc_log(card->ctx, "No extended length support ? Trying fall-back to short APDUs, probably breaking support for RSA 2048 operations");
 		priv->noExtLength = 1;
+		card->max_send_size = 248;		// 255 - 7 because of TLV in odd ins UPDATE BINARY
 		return sc_hsm_list_files(card, buf, buflen);
 	}
 	LOG_TEST_RET(card->ctx, r, "ENUMERATE OBJECTS APDU transmit failed");
@@ -652,7 +653,7 @@ static int sc_hsm_init(struct sc_card *card)
 
 	card->caps |= SC_CARD_CAP_RNG|SC_CARD_CAP_APDU_EXT;
 
-	card->max_send_size = 248;		// because of odd ins in UPDATE BINARY
+	card->max_send_size = 1431;		// 1439 buffer size - 8 byte TLV because of odd ins in UPDATE BINARY
 	return 0;
 }
 

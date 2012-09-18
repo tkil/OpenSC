@@ -243,6 +243,12 @@ static int sc_hsm_generate_key(struct sc_profile *profile, struct sc_pkcs15_card
 
 
 
+/*
+ * Certificates with a related private key are stored in the fid range CE00 - CEFF. The
+ * second byte in the fid matches the key id.
+ * Certificates without a related private key (e.g. CA certificates) are stored in the fid range
+ * CA00 - CAFF. The second byte is a free selected id.
+ */
 static int sc_hsm_emu_store_cert(struct sc_pkcs15_card *p15card, struct sc_profile *profile,
 		struct sc_pkcs15_object *object,
 		struct sc_pkcs15_der *data)
@@ -251,16 +257,29 @@ static int sc_hsm_emu_store_cert(struct sc_pkcs15_card *p15card, struct sc_profi
 	struct sc_context *ctx = p15card->card->ctx;
 	struct sc_pkcs15_cert_info *cert_info = (struct sc_pkcs15_cert_info *) object->data;
 	struct sc_pkcs15_object *prkey;
+	sc_path_t path;
+	u8 id[2];
 	int r;
 
 	r = sc_pkcs15_find_object_by_id(p15card, SC_PKCS15_TYPE_PRKEY, &cert_info->id , &prkey);
 
 	if (r == SC_ERROR_OBJECT_NOT_FOUND) {
-		// ToDo Add to list of other certificates
+		r = sc_hsm_determine_free_id(p15card, CA_CERTIFICATE_PREFIX);
+		LOG_TEST_RET(p15card->card->ctx, r, "Out of identifier to store certificate description");
+
+		id[0] = CA_CERTIFICATE_PREFIX;
+		id[1] = r;
 	} else {
 		LOG_TEST_RET(p15card->card->ctx, r, "Error locating matching private key");
-		r = sc_hsm_update_ef(p15card, EE_CERTIFICATE_PREFIX, ((struct sc_pkcs15_prkey_info *)prkey->data)->key_reference, 1, data->value, data->len);
+
+		id[0] = EE_CERTIFICATE_PREFIX;
+		id[1] = ((struct sc_pkcs15_prkey_info *)prkey->data)->key_reference;
 	}
+
+	sc_path_set(&path, SC_PATH_TYPE_FILE_ID, id, 2, 0, -1);
+	cert_info->path = path;
+
+	r = sc_hsm_update_ef(p15card, id[0], id[1], 1, data->value, data->len);
 	return r;
 }
 
@@ -278,7 +297,7 @@ static int sc_hsm_emu_delete_cert(struct sc_pkcs15_card *p15card, struct sc_prof
 	r = sc_pkcs15_find_object_by_id(p15card, SC_PKCS15_TYPE_PRKEY, &cert_info->id , &prkey);
 
 	if (r == SC_ERROR_OBJECT_NOT_FOUND) {
-		// ToDo Add to list of other certificates
+		r = sc_hsm_delete_ef(p15card, CA_CERTIFICATE_PREFIX, cert_info->path.value[1]);
 	} else {
 		LOG_TEST_RET(p15card->card->ctx, r, "Error locating matching private key");
 		r = sc_hsm_delete_ef(p15card, EE_CERTIFICATE_PREFIX, ((struct sc_pkcs15_prkey_info *)prkey->data)->key_reference);
@@ -299,17 +318,20 @@ static int sc_hsm_emu_store_binary(struct sc_pkcs15_card *p15card, struct sc_pro
 	u8 id[2];
 	int r;
 
+	r = sc_hsm_determine_free_id(p15card, DCOD_PREFIX);
+	LOG_TEST_RET(p15card->card->ctx, r, "Out of identifier to store data description");
+
 	if (object->flags & SC_PKCS15_CO_FLAG_PRIVATE) {
 		id[0] = PROT_DATA_PREFIX;
 	} else {
 		id[0] = DATA_PREFIX;
 	}
-	id[1] = data_info->id.value[0];
+	id[1] = r;
 
 	sc_path_set(&path, SC_PATH_TYPE_FILE_ID, id, 2, 0, -1);
 	data_info->path = path;
 
-	r = sc_hsm_update_ef(p15card, id[0], data_info->id.value[0], 1, data->value, data->len);
+	r = sc_hsm_update_ef(p15card, id[0], id[1], 1, data->value, data->len);
 	return r;
 }
 
@@ -400,7 +422,7 @@ static int sc_hsm_emu_update_dcod(struct sc_profile *profile, struct sc_pkcs15_c
 		struct sc_pkcs15_object *object)
 {
 	struct sc_context *ctx = p15card->card->ctx;
-	struct sc_pkcs15_data_info *cert_info = (struct sc_pkcs15_data_info *) object->data;
+	struct sc_pkcs15_data_info *data_info = (struct sc_pkcs15_data_info *) object->data;
 	u8 *buf;
 	size_t buflen;
 	int r;
@@ -408,9 +430,54 @@ static int sc_hsm_emu_update_dcod(struct sc_profile *profile, struct sc_pkcs15_c
 	r = sc_pkcs15_encode_dodf_entry(p15card->card->ctx, object, &buf, &buflen);
 	LOG_TEST_RET(p15card->card->ctx, r, "Error encoding DCOD entry");
 
-	r = sc_hsm_update_ef(p15card, DCOD_PREFIX, cert_info->id.value[0], 0, buf, buflen);
+	r = sc_hsm_update_ef(p15card, DCOD_PREFIX, data_info->path.value[1], 0, buf, buflen);
 	free(buf);
 	return r;
+}
+
+
+
+static int sc_hsm_emu_update_cd(struct sc_profile *profile, struct sc_pkcs15_card *p15card,
+		struct sc_pkcs15_object *object)
+{
+	struct sc_context *ctx = p15card->card->ctx;
+	struct sc_pkcs15_cert_info *cert_info = (struct sc_pkcs15_cert_info *) object->data;
+	u8 *buf;
+	size_t buflen;
+	int r;
+
+	if ((cert_info->path.len < 2) ||
+		((cert_info->path.value[cert_info->path.len - 2]) != CA_CERTIFICATE_PREFIX)) {
+		// Certificates associated with stored private keys don't get a separate CD entry
+		return SC_SUCCESS;
+	}
+
+	r = sc_pkcs15_encode_cdf_entry(p15card->card->ctx, object, &buf, &buflen);
+	LOG_TEST_RET(p15card->card->ctx, r, "Error encoding CD entry");
+
+	r = sc_hsm_update_ef(p15card, CD_PREFIX, cert_info->path.value[1], 0, buf, buflen);
+	free(buf);
+	return r;
+}
+
+
+
+static int sc_hsm_emu_delete_cd(struct sc_profile *profile, struct sc_pkcs15_card *p15card,
+		struct sc_pkcs15_object *object)
+{
+	struct sc_context *ctx = p15card->card->ctx;
+	struct sc_pkcs15_cert_info *cert_info = (struct sc_pkcs15_cert_info *) object->data;
+	u8 *buf;
+	size_t buflen;
+	int r;
+
+	if ((cert_info->path.len < 2) ||
+		((cert_info->path.value[cert_info->path.len - 2]) != CA_CERTIFICATE_PREFIX)) {
+		// Certificates associated with stored private keys don't get a separate CD entry
+		return SC_SUCCESS;
+	}
+
+	return sc_hsm_delete_ef(p15card, CD_PREFIX, ((struct sc_pkcs15_data_info *)object->data)->path.value[1]);
 }
 
 
@@ -430,8 +497,10 @@ static int sc_hsm_emu_update_any_df(struct sc_profile *profile, struct sc_pkcs15
 			rv = sc_hsm_delete_ef(p15card, PRKD_PREFIX, ((struct sc_pkcs15_prkey_info *)object->data)->key_reference);
 			break;
 		case SC_PKCS15_TYPE_PUBKEY:
-		case SC_PKCS15_TYPE_CERT:
 			rv = SC_SUCCESS;
+			break;
+		case SC_PKCS15_TYPE_CERT:
+			rv = sc_hsm_emu_delete_cd(profile, p15card, object);
 			break;
 		case SC_PKCS15_TYPE_DATA_OBJECT:
 			rv = sc_hsm_delete_ef(p15card, DCOD_PREFIX, ((struct sc_pkcs15_data_info *)object->data)->path.value[1]);
@@ -449,7 +518,7 @@ static int sc_hsm_emu_update_any_df(struct sc_profile *profile, struct sc_pkcs15
 			rv = sc_hsm_emu_update_prkd(profile, p15card, object);
 			break;
 		case SC_PKCS15_TYPE_CERT:
-			rv = SC_SUCCESS;
+			rv = sc_hsm_emu_update_cd(profile, p15card, object);
 			break;
 		case SC_PKCS15_TYPE_DATA_OBJECT:
 			rv = sc_hsm_emu_update_dcod(profile, p15card, object);

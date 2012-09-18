@@ -400,6 +400,55 @@ static int sc_pkcs15emu_sc_hsm_add_dcod(sc_pkcs15_card_t * p15card, u8 id) {
 
 
 /*
+ * Add a unrelated certificate object and description in PKCS#15 format to the framework
+ */
+static int sc_pkcs15emu_sc_hsm_add_cd(sc_pkcs15_card_t * p15card, u8 id) {
+
+	sc_card_t *card = p15card->card;
+	sc_pkcs15_cert_info_t *cert_info;
+	sc_pkcs15_object_t obj;
+	sc_file_t *file = NULL;
+	sc_path_t path;
+	u8 fid[2];
+	u8 efbin[512];
+	const u8 *ptr;
+	size_t len;
+	int r, i;
+
+	fid[0] = CD_PREFIX;
+	fid[1] = id;
+
+	/* Try to select a related EF containing the PKCS#15 description of the data */
+	sc_path_set(&path, SC_PATH_TYPE_FILE_ID, fid, sizeof(fid), 0, 0);
+	r = sc_select_file(card, &path, &file);
+
+	if (r != SC_SUCCESS) {
+		return SC_SUCCESS;
+	}
+
+	sc_file_free(file);
+	r = sc_read_binary(p15card->card, 0, efbin, sizeof(efbin), 0);
+	LOG_TEST_RET(card->ctx, r, "Could not read EF.DCOD");
+
+	memset(&obj, 0, sizeof(obj));
+	ptr = efbin;
+	len = r;
+
+	r = sc_pkcs15_decode_cdf_entry(p15card, &obj, &ptr, &len);
+	LOG_TEST_RET(card->ctx, r, "Could not decode EF.CD");
+
+	cert_info = (sc_pkcs15_cert_info_t *)obj.data;
+
+	r = sc_pkcs15emu_add_x509_cert(p15card, &obj, cert_info);
+
+	LOG_TEST_RET(card->ctx, r, "Could not add data object to framework");
+
+	return SC_SUCCESS;
+}
+
+
+
+/*
  * Initialize PKCS#15 emulation with user PIN, private keys, certificate and data objects
  *
  */
@@ -506,6 +555,9 @@ static int sc_pkcs15emu_sc_hsm_init (sc_pkcs15_card_t * p15card)
 			break;
 		case DCOD_PREFIX:
 			r = sc_pkcs15emu_sc_hsm_add_dcod(p15card, filelist[i + 1]);
+			break;
+		case CD_PREFIX:
+			r = sc_pkcs15emu_sc_hsm_add_cd(p15card, filelist[i + 1]);
 			break;
 		}
 		LOG_TEST_RET(card->ctx, r, "Error adding elements to framework");

@@ -23,8 +23,9 @@
 
 #define MAX_EXT_APDU_LENGTH 1014
 
-#define PRKD_PREFIX				0xC4		/* Hi byte in file identifier for PRKD objects */
-#define DCOD_PREFIX				0xC9		/* Hi byte in file identifier for DCOD objects */
+#define PRKD_PREFIX				0xC4		/* Hi byte in file identifier for PKCS#15 PRKD objects */
+#define CD_PREFIX				0xC8		/* Hi byte in file identifier for PKCS#15 CD objects */
+#define DCOD_PREFIX				0xC9		/* Hi byte in file identifier for PKCS#15 DCOD objects */
 #define CA_CERTIFICATE_PREFIX	0xCA		/* Hi byte in file identifier for CA certificates */
 #define KEY_PREFIX				0xCC		/* Hi byte in file identifier for key objects */
 #define PROT_DATA_PREFIX		0xCD		/* Hi byte in file identifier for PIN protected data objects */
