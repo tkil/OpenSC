@@ -202,7 +202,9 @@ int sc_pkcs15emu_sc_hsm_encode_cvc(sc_pkcs15_card_t * p15card,
 		sc_format_asn1_entry(asn1_cvc_pubkey + 3, cvc->coefficientB, &cvc->coefficientBlen, 1);
 		sc_format_asn1_entry(asn1_cvc_pubkey + 4, cvc->basePointG, &cvc->basePointGlen, 1);
 		sc_format_asn1_entry(asn1_cvc_pubkey + 5, cvc->order, &cvc->orderlen, 1);
-		sc_format_asn1_entry(asn1_cvc_pubkey + 6, cvc->publicPoint, &cvc->publicPointlen, 1);
+		if (cvc->publicPoint && (cvc->publicPointlen > 0)) {
+			sc_format_asn1_entry(asn1_cvc_pubkey + 6, cvc->publicPoint, &cvc->publicPointlen, 1);
+		}
 		sc_format_asn1_entry(asn1_cvc_pubkey + 7, cvc->cofactor, &cvc->cofactorlen, 1);
 	}
 	if (cvc->modulusSize > 0) {
@@ -336,8 +338,7 @@ static int sc_pkcs15emu_sc_hsm_add_prkd(sc_pkcs15_card_t * p15card, u8 keyid) {
 	memset(&cert_info, 0, sizeof(cert_info));
 	memset(&cert_obj, 0, sizeof(cert_obj));
 
-	cert_info.id.value[0] = keyid;
-	cert_info.id.len = 1;
+	cert_info.id = key_info->id;
 	cert_info.path = path;
 	cert_info.path.count = -1;
 
