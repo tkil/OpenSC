@@ -1940,7 +1940,7 @@ check_keygen_params_consistency(struct sc_card *card, struct sc_pkcs15init_keyge
 		LOG_TEST_RET(ctx, rv, "Cannot fix EC parameters");
 
 		sc_log(ctx, "EC parameters: %s", sc_dump_hex(ecparams->der.value, ecparams->der.len));
-		if (keybits)
+		if (!keybits)
 			keybits = ecparams->field_length;
 	}
 

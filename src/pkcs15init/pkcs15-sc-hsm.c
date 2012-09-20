@@ -35,9 +35,23 @@
 #include "../libopensc/pkcs15.h"
 #include "../libopensc/cards.h"
 #include "../libopensc/card-sc-hsm.h"
+#include "../libopensc/asn1.h"
+#include "../libopensc/pkcs15.h"
 
 #include "pkcs15-init.h"
 #include "profile.h"
+
+
+
+static u8 pubexp[] = { 0x01, 0x00, 0x01 };
+
+
+
+#define C_ASN1_EC_POINTQ_SIZE 2
+static struct sc_asn1_entry c_asn1_ec_pointQ[C_ASN1_EC_POINTQ_SIZE] = {
+	{ "ecpointQ", SC_ASN1_OCTET_STRING, SC_ASN1_TAG_OCTET_STRING, SC_ASN1_ALLOC, NULL, NULL },
+	{ NULL, 0, 0, 0, NULL, NULL }
+};
 
 
 
@@ -137,6 +151,168 @@ static int sc_hsm_determine_free_id(struct sc_pkcs15_card *p15card, u8 range)
 
 
 
+static int sc_hsm_encode_gakp_rsa(struct sc_pkcs15_card *p15card, sc_cvc_t *cvc, int keysize) {
+	struct sc_object_id rsa15withSHA256 = { { 0,4,0,127,0,7,2,2,2,1,2,-1 } };
+
+	LOG_FUNC_CALLED(p15card->card->ctx);
+
+	cvc->coefficientAorExponentlen = sizeof(pubexp);
+	cvc->coefficientAorExponent = malloc(sizeof(pubexp));
+	if (!cvc->coefficientAorExponent) {
+		LOG_FUNC_RETURN(p15card->card->ctx, SC_ERROR_OUT_OF_MEMORY);
+	}
+	memcpy(cvc->coefficientAorExponent, pubexp, sizeof(pubexp));
+
+	cvc->pukoid = rsa15withSHA256;
+	cvc->modulusSize = keysize;
+
+	LOG_FUNC_RETURN(p15card->card->ctx, SC_SUCCESS);
+}
+
+
+
+static int sc_hsm_encode_gakp_ec(struct sc_pkcs15_card *p15card, sc_cvc_t *cvc, struct sc_pkcs15_prkey_info *key_info) {
+	struct sc_object_id ecdsaWithSHA256 = { { 0,4,0,127,0,7,2,2,2,2,3,-1 } };
+	u8 prime[] =        { 0xFF,0xFF,0xFF,0xFF,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF };
+	u8 coefficientA[] = { 0xFF,0xFF,0xFF,0xFF,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFC };
+	u8 coefficientB[] = { 0x5A,0xC6,0x35,0xD8,0xAA,0x3A,0x93,0xE7,0xB3,0xEB,0xBD,0x55,0x76,0x98,0x86,0xBC,0x65,0x1D,0x06,0xB0,0xCC,0x53,0xB0,0xF6,0x3B,0xCE,0x3C,0x3E,0x27,0xD2,0x60,0x4B };
+	u8 basePointG[] =   { 0x04,0x6B,0x17,0xD1,0xF2,0xE1,0x2C,0x42,0x47,0xF8,0xBC,0xE6,0xE5,0x63,0xA4,0x40,0xF2,0x77,0x03,0x7D,0x81,0x2D,0xEB,0x33,0xA0,0xF4,0xA1,0x39,0x45,0xD8,0x98,0xC2,0x96,0x4F,0xE3,0x42,0xE2,0xFE,0x1A,0x7F,0x9B,0x8E,0xE7,0xEB,0x4A,0x7C,0x0F,0x9E,0x16,0x2B,0xCE,0x33,0x57,0x6B,0x31,0x5E,0xCE,0xCB,0xB6,0x40,0x68,0x37,0xBF,0x51,0xF5 };
+	u8 order[] =        { 0xFF,0xFF,0xFF,0xFF,0x00,0x00,0x00,0x00,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xBC,0xE6,0xFA,0xAD,0xA7,0x17,0x9E,0x84,0xF3,0xB9,0xCA,0xC2,0xFC,0x63,0x25,0x51 };
+	u8 coFactor[] =     { 0x01 };
+
+	LOG_FUNC_CALLED(p15card->card->ctx);
+
+	cvc->primeOrModuluslen = sizeof(prime);
+	cvc->primeOrModulus = malloc(cvc->primeOrModuluslen);
+	if (!cvc->primeOrModulus) {
+		LOG_FUNC_RETURN(p15card->card->ctx, SC_ERROR_OUT_OF_MEMORY);
+	}
+	memcpy(cvc->primeOrModulus, prime, cvc->primeOrModuluslen);
+
+	cvc->coefficientAorExponentlen = sizeof(coefficientA);
+	cvc->coefficientAorExponent = malloc(cvc->coefficientAorExponentlen);
+	if (!cvc->coefficientAorExponent) {
+		LOG_FUNC_RETURN(p15card->card->ctx, SC_ERROR_OUT_OF_MEMORY);
+	}
+	memcpy(cvc->coefficientAorExponent, coefficientA, cvc->coefficientAorExponentlen);
+
+	cvc->coefficientBlen = sizeof(coefficientB);
+	cvc->coefficientB = malloc(cvc->coefficientBlen);
+	if (!cvc->coefficientB) {
+		LOG_FUNC_RETURN(p15card->card->ctx, SC_ERROR_OUT_OF_MEMORY);
+	}
+	memcpy(cvc->coefficientB, coefficientB, cvc->coefficientBlen);
+
+	cvc->basePointGlen = sizeof(basePointG);
+	cvc->basePointG = malloc(cvc->basePointGlen);
+	if (!cvc->basePointG) {
+		LOG_FUNC_RETURN(p15card->card->ctx, SC_ERROR_OUT_OF_MEMORY);
+	}
+	memcpy(cvc->basePointG, basePointG, cvc->basePointGlen);
+
+	cvc->orderlen = sizeof(order);
+	cvc->order = malloc(cvc->orderlen);
+	if (!cvc->order) {
+		LOG_FUNC_RETURN(p15card->card->ctx, SC_ERROR_OUT_OF_MEMORY);
+	}
+	memcpy(cvc->order, order, cvc->orderlen);
+
+	cvc->cofactorlen = sizeof(coFactor);
+	cvc->cofactor = malloc(cvc->cofactorlen);
+	if (!cvc->cofactor) {
+		LOG_FUNC_RETURN(p15card->card->ctx, SC_ERROR_OUT_OF_MEMORY);
+	}
+	memcpy(cvc->cofactor, coFactor, cvc->cofactorlen);
+
+	cvc->pukoid = ecdsaWithSHA256;
+
+	LOG_FUNC_RETURN(p15card->card->ctx, SC_SUCCESS);
+}
+
+
+
+static int sc_hsm_decode_gakp_rsa(struct sc_pkcs15_card *p15card,
+									sc_cvc_t *cvc,
+									struct sc_pkcs15_prkey_info *key_info,
+									struct sc_pkcs15_pubkey *pubkey)
+{
+	u8 *buf;
+	size_t buflen;
+	int r;
+
+	LOG_FUNC_CALLED(p15card->card->ctx);
+
+	if (((key_info->modulus_length + 7) / 8) != cvc->primeOrModuluslen) {
+		sc_log(p15card->card->ctx, "Modulus size in request does not match generated public key");
+		LOG_FUNC_RETURN(p15card->card->ctx, SC_ERROR_OUT_OF_MEMORY);
+	}
+
+	pubkey->algorithm = SC_ALGORITHM_RSA;
+	pubkey->u.rsa.modulus.len	= cvc->primeOrModuluslen;
+	pubkey->u.rsa.modulus.data	= malloc(pubkey->u.rsa.modulus.len);
+	pubkey->u.rsa.exponent.len	= sizeof(pubexp);
+	pubkey->u.rsa.exponent.data	= malloc(pubkey->u.rsa.exponent.len);
+	if (!pubkey->u.rsa.modulus.data || !pubkey->u.rsa.exponent.data) {
+		LOG_FUNC_RETURN(p15card->card->ctx, SC_ERROR_OUT_OF_MEMORY);
+	}
+	memcpy(pubkey->u.rsa.exponent.data, pubexp, pubkey->u.rsa.exponent.len);
+	memcpy(pubkey->u.rsa.modulus.data, cvc->primeOrModulus, pubkey->u.rsa.modulus.len);
+
+	LOG_FUNC_RETURN(p15card->card->ctx, SC_SUCCESS);
+}
+
+
+
+static int sc_hsm_decode_gakp_ec(struct sc_pkcs15_card *p15card,
+									sc_cvc_t *cvc,
+									struct sc_pkcs15_prkey_info *key_info,
+									struct sc_pkcs15_pubkey *pubkey)
+{
+	struct sc_asn1_entry asn1_ec_pointQ[C_ASN1_EC_POINTQ_SIZE];
+	struct sc_pkcs15_ec_parameters *ecparams = (struct sc_pkcs15_ec_parameters *)(key_info->params.data);
+	struct sc_ec_params *ecp;
+	u8 *buf;
+	size_t buflen;
+	int r;
+
+	LOG_FUNC_CALLED(p15card->card->ctx);
+
+	pubkey->algorithm = SC_ALGORITHM_EC;
+	pubkey->u.ec.params.named_curve = strdup(ecparams->named_curve);
+	sc_pkcs15_fix_ec_parameters(p15card->card->ctx, &pubkey->u.ec.params);
+
+	ecp = calloc(1, sizeof(struct sc_ec_params));
+	if (!ecp) {
+		LOG_FUNC_RETURN(p15card->card->ctx, SC_ERROR_OUT_OF_MEMORY);
+	}
+
+	ecp->der = malloc(ecparams->der.len);
+	if (!ecp->der) {
+		LOG_FUNC_RETURN(p15card->card->ctx, SC_ERROR_OUT_OF_MEMORY);
+	}
+
+	ecp->der_len = ecparams->der.len;
+	memcpy(ecp->der, ecparams->der.value, ecp->der_len);
+
+	pubkey->alg_id = (struct sc_algorithm_id *)calloc(1, sizeof(struct sc_algorithm_id));
+	if (!pubkey->alg_id) {
+		LOG_FUNC_RETURN(p15card->card->ctx, SC_ERROR_OUT_OF_MEMORY);
+	}
+
+	pubkey->alg_id->algorithm = SC_ALGORITHM_EC;
+	pubkey->alg_id->params = ecp;
+
+	sc_copy_asn1_entry(c_asn1_ec_pointQ, asn1_ec_pointQ);
+	sc_format_asn1_entry(asn1_ec_pointQ + 0, cvc->publicPoint, &cvc->publicPointlen, 1);
+
+	r = sc_asn1_encode(p15card->card->ctx, asn1_ec_pointQ, &pubkey->u.ec.ecpointQ.value, &pubkey->u.ec.ecpointQ.len);
+	LOG_TEST_RET(p15card->card->ctx, r, "ASN.1 encoding failed");
+
+	LOG_FUNC_RETURN(p15card->card->ctx, SC_SUCCESS);
+}
+
+
+
 static int sc_hsm_generate_key(struct sc_profile *profile, struct sc_pkcs15_card *p15card,
 															struct sc_pkcs15_object *object,
 															struct sc_pkcs15_pubkey *pubkey)
@@ -145,11 +321,8 @@ static int sc_hsm_generate_key(struct sc_profile *profile, struct sc_pkcs15_card
 	struct sc_card *card = p15card->card;
 	struct sc_pkcs15_prkey_info *key_info = (struct sc_pkcs15_prkey_info *)object->data;
 	sc_cardctl_sc_hsm_keygen_info_t sc_hsm_keyinfo;
-	struct sc_object_id rsa15withSHA256 = { { 0,4,0,127,0,7,2,2,2,1,2,-1 } };
 	sc_cvc_t cvc;
-	u8 pubexp[] = { 0x01, 0x00, 0x01 };
 	u8 *cvcbin, *cvcpo;
-	const u8 *pp;
 	unsigned int cla,tag;
 	size_t taglen, cvclen;
 	int r;
@@ -165,18 +338,20 @@ static int sc_hsm_generate_key(struct sc_profile *profile, struct sc_pkcs15_card
 
 	memset(&cvc, 0, sizeof(cvc));
 
-	strcpy(cvc.car, "UTCA00000");
-	strcpy(cvc.chr, "UTTM00000");
+	strcpy(cvc.car, "UTCA00001");
+	strcpy(cvc.chr, "UTTM00001");
 
-	cvc.coefficientAorExponentlen = sizeof(pubexp);
-	cvc.coefficientAorExponent = malloc(sizeof(pubexp));
-	if (!cvc.coefficientAorExponent) {
-		LOG_FUNC_RETURN(card->ctx, SC_ERROR_OUT_OF_MEMORY);
+	switch(object->type) {
+	case SC_PKCS15_TYPE_PRKEY_RSA:
+		r = sc_hsm_encode_gakp_rsa(p15card, &cvc, key_info->modulus_length);
+		break;
+	case SC_PKCS15_TYPE_PRKEY_EC:
+		r = sc_hsm_encode_gakp_ec(p15card, &cvc, key_info);
+		break;
+	default:
+		LOG_FUNC_RETURN(card->ctx, SC_ERROR_NOT_IMPLEMENTED);
+		break;
 	}
-	memcpy(cvc.coefficientAorExponent, pubexp, sizeof(pubexp));
-
-	cvc.pukoid = rsa15withSHA256;
-	cvc.modulusSize = key_info->modulus_length;
 
 	r = sc_pkcs15emu_sc_hsm_encode_cvc(p15card, &cvc, &cvcbin, &cvclen);
 	sc_pkcs15emu_sc_hsm_free_cvc(&cvc);
@@ -191,6 +366,8 @@ static int sc_hsm_generate_key(struct sc_profile *profile, struct sc_pkcs15_card
 	sc_hsm_keyinfo.auth_key_id = 0;
 	sc_hsm_keyinfo.gakprequest = cvcpo;
 	sc_hsm_keyinfo.gakprequest_len = taglen;
+	sc_hsm_keyinfo.gakpresponse = NULL;
+	sc_hsm_keyinfo.gakpresponse_len = 0;
 
 	r = sc_card_ctl(card, SC_CARDCTL_SC_HSM_GENERATE_KEY, &sc_hsm_keyinfo);
 	if (r < 0)
@@ -207,25 +384,15 @@ static int sc_hsm_generate_key(struct sc_profile *profile, struct sc_pkcs15_card
 		goto out;
 	}
 
-	if (((key_info->modulus_length + 7) / 8) != cvc.primeOrModuluslen) {
-		sc_log(p15card->card->ctx, "Modulus size in request does not match generated public key");
-		r = SC_ERROR_OBJECT_NOT_VALID;
-		goto out;
-	}
-
-	if (pubkey != NULL)   {
-		pubkey->algorithm = SC_ALGORITHM_RSA;
-		pubkey->u.rsa.modulus.len	= cvc.primeOrModuluslen;
-		pubkey->u.rsa.modulus.data	= malloc(pubkey->u.rsa.modulus.len);
-		pubkey->u.rsa.exponent.len	= sizeof(pubexp);
-		pubkey->u.rsa.exponent.data	= malloc(pubkey->u.rsa.exponent.len);
-		if (!pubkey->u.rsa.modulus.data || !pubkey->u.rsa.exponent.data) {
-			r = SC_ERROR_OBJECT_NOT_VALID;
-			goto out;
-
+	if (pubkey != NULL) {
+		switch(object->type) {
+		case SC_PKCS15_TYPE_PRKEY_RSA:
+			r = sc_hsm_decode_gakp_rsa(p15card, &cvc, key_info, pubkey);
+			break;
+		case SC_PKCS15_TYPE_PRKEY_EC:
+			r = sc_hsm_decode_gakp_ec(p15card, &cvc, key_info, pubkey);
+			break;
 		}
-		memcpy(pubkey->u.rsa.exponent.data, pubexp, pubkey->u.rsa.exponent.len);
-		memcpy(pubkey->u.rsa.modulus.data, cvc.primeOrModulus, pubkey->u.rsa.modulus.len);
 	}
 
 	out:
