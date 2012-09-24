@@ -329,12 +329,8 @@ static int sc_hsm_generate_key(struct sc_profile *profile, struct sc_pkcs15_card
 
 	LOG_FUNC_CALLED(p15card->card->ctx);
 
-	if ((key_info->id.len != 1) || (key_info->id.value[0] == 0)) {
-		key_info->key_reference = sc_hsm_determine_free_id(p15card, KEY_PREFIX);
-		LOG_TEST_RET(card->ctx, key_info->key_reference, "Could not determine key reference");
-	} else {
-		key_info->key_reference = key_info->id.value[0];
-	}
+	key_info->key_reference = sc_hsm_determine_free_id(p15card, KEY_PREFIX);
+	LOG_TEST_RET(card->ctx, key_info->key_reference, "Could not determine key reference");
 
 	memset(&cvc, 0, sizeof(cvc));
 
