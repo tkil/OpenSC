@@ -55,6 +55,7 @@ static char * opt_bind_to_aid = NULL;
 static u8 * opt_newpin = NULL;
 static u8 * opt_pin = NULL;
 static u8 * opt_puk = NULL;
+static char * opt_delete_path = NULL;
 
 static int	verbose = 0;
 
@@ -93,6 +94,7 @@ static const struct option options[] = {
 	{ "list-pins",		no_argument, NULL,		OPT_LIST_PINS },
 	{ "list-secret-keys",	no_argument, NULL,		OPT_LIST_SKEYS },
 	{ "dump",		no_argument, NULL,		'D' },
+	{ "delete-path",	required_argument, NULL,	'b' },
 	{ "unblock-pin",	no_argument, NULL,		'u' },
 	{ "change-pin",		no_argument, NULL,		OPT_CHANGE_PIN },
 	{ "list-keys",          no_argument, NULL,		'k' },
@@ -127,6 +129,7 @@ static const char *option_help[] = {
 	"Lists PIN codes",
 	"Lists secret keys",
 	"Dump card objects",
+	"Delete node at the given path",
 	"Unblock PIN code",
 	"Change PIN or PUK code",
 	"Lists private keys",
@@ -1296,6 +1299,123 @@ static int dump(void)
 	return 0;
 }
 
+#define ZERO_STRUCT(x)     memset(&x, 0, sizeof( x))
+#define ZERO_STRUCT_PTR(x) memset( x, 0, sizeof(*x))
+
+#define RETURN_UNLESS(x)		\
+	do {				\
+		const int rc = (x);	\
+		if (rc != SC_SUCCESS)	\
+			return rc;	\
+	} while (0)
+
+#define DEBUGGING 1
+
+#if DEBUGGING
+#  define DEBUG(...) fprintf(stderr, __VA_ARGS__)
+#else
+#  define DEBUG(...) do {} while (0)
+#endif
+
+static int parse_text_path(char * path_text, struct sc_path * path)
+{
+	size_t path_len;
+	char * double_colon_pos;
+	char * aid_begin = NULL;
+	char * aid_end = NULL;
+	char * path_begin = NULL;
+	char * path_end = NULL;
+
+	if (!path_text)
+		return SC_ERROR_INVALID_ARGUMENTS;
+
+	path_len = strlen(path_text);
+	if (path_len == 0)
+		return SC_ERROR_INVALID_ARGUMENTS;
+
+	DEBUG("ptp: path_len=%zu\n", path_len);
+
+	ZERO_STRUCT_PTR(path);
+	path->type == SC_PATH_TYPE_PATH;
+
+	/* This segment tries to understand the printed path as given
+	 * by `sc_path_print` (in ../libopensc/sc.c). */
+	double_colon_pos = strstr(path_text, "::");
+	if (double_colon_pos == NULL) {
+		/* No double colon at all, it's a simple path. */
+		path_begin = path_text;
+		path_end   = path_text + path_len;
+	} else if (double_colon_pos[2] == '\0') {
+		/* Double colon at end, it's a DF name. */
+		path->type == SC_PATH_TYPE_DF_NAME;
+		path_begin = path_text;
+		path_end   = double_colon_pos;
+		*double_colon_pos = '\0';
+	} else {
+		/* Double colon in middle, it's AID + path. */
+		aid_begin = path_text;
+		aid_end   = double_colon_pos;
+		path_begin = double_colon_pos + 2;
+		path_end   = path_text + path_len;
+		*double_colon_pos = '\0';
+	}
+
+	DEBUG("ptp: aid='%s', path='%s'\n", aid_begin, path_begin);
+
+	path->aid.len = (aid_end - aid_begin) / 2;
+	path->len = (path_end - path_begin) / 2;
+
+	DEBUG("ptp: aid.len=%zu, path.len=%zu\n", path->aid.len, path->len);
+
+	if (aid_begin != NULL)
+		RETURN_UNLESS(sc_hex_to_bin(aid_begin, path->aid.value,
+					    &(path->aid.len)));
+
+	return sc_hex_to_bin(path_begin, path->value, &(path->len));
+}
+
+static int delete_path(void)
+{
+	struct sc_profile * fake_profile_ptr;
+	struct sc_pkcs15_object fake_obj;
+	struct sc_pkcs15_data_info fake_info;
+
+	/* This doesn't work; we need a valid profile so that the
+	 * pkcs15-lib can decide how to delete things.*/
+	fake_profile_ptr = NULL;
+
+	ZERO_STRUCT(fake_obj);
+	fake_obj.type |= SC_PKCS15_TYPE_DATA_OBJECT;
+	fake_obj.data = &fake_info;
+
+	ZERO_STRUCT(fake_info);
+	RETURN_UNLESS(parse_text_path(opt_delete_path, &(fake_info.path)));
+
+#if DEBUGGING
+	{
+		size_t i;
+		DEBUG("dp: aid=");
+		for (i = 0; i < fake_info.path.aid.len; ++i)
+			DEBUG("%02x", fake_info.path.aid.value[i]);
+		DEBUG(", path=");
+		for (i = 0; i < fake_info.path.len; ++i)
+			DEBUG("%02x", fake_info.path.value[i]);
+		DEBUG("\n");
+	}
+#endif // DEBUGGING
+
+	return sc_pkcs15init_delete_object(p15card, fake_profile_ptr, &fake_obj);
+}
+
+#undef DEBUG
+
+#undef DEBUGGING
+
+#undef RETURN_UNLESS
+
+#undef ZERO_STRUCT_PTR
+#undef ZERO_STRUCT
+
 static int unblock_pin(void)
 {
 	struct sc_pkcs15_auth_info *pinfo = NULL;
@@ -1784,6 +1904,7 @@ int main(int argc, char * const argv[])
 	int do_list_skeys = 0;
 	int do_list_apps = 0;
 	int do_dump = 0;
+	int do_delete_path = 0;
 	int do_list_prkeys = 0;
 	int do_list_pubkeys = 0;
 	int do_read_pubkey = 0;
@@ -1845,6 +1966,11 @@ int main(int argc, char * const argv[])
 			break;
 		case 'D':
 			do_dump = 1;
+			action_count++;
+			break;
+		case 'b':
+			opt_delete_path = optarg;
+			do_delete_path = 1;
 			action_count++;
 			break;
 		case 'k':
@@ -2033,6 +2159,11 @@ int main(int argc, char * const argv[])
 	}
 	if (do_dump) {
 		if ((err = dump()))
+			goto end;
+		action_count--;
+	}
+	if (do_delete_path) {
+		if ((err = delete_path()))
 			goto end;
 		action_count--;
 	}
