@@ -2903,6 +2903,7 @@ sc_pkcs15init_delete_object(struct sc_pkcs15_card *p15card, struct sc_profile *p
 
 	if (profile->ops->delete_object != NULL) {
 		/* If there's a card-specific way to delete objects, use it. */
+		sc_log(ctx, "calling card-specific delete");
 		r = profile->ops->delete_object(profile, p15card, obj, &path);
 		if (r != SC_ERROR_NOT_SUPPORTED)
 			LOG_TEST_RET(ctx, r, "Card specific delete object failed");
@@ -2919,6 +2920,7 @@ sc_pkcs15init_delete_object(struct sc_pkcs15_card *p15card, struct sc_profile *p
 		}
 
 		/* If the object is stored in a normal EF, try to delete the EF. */
+		sc_log(ctx, "deleting via EF");
 		if (r == SC_SUCCESS && stored_in_ef) {
 			r = sc_pkcs15init_delete_by_path(profile, p15card, &path);
 			LOG_TEST_RET(ctx, r, "Failed to delete object by path");
@@ -2926,6 +2928,7 @@ sc_pkcs15init_delete_object(struct sc_pkcs15_card *p15card, struct sc_profile *p
 	}
 
 	if (profile->ops->emu_update_any_df)   {
+		sc_log(ctx, "deleting via 'ERASE' DF update");
 		r = profile->ops->emu_update_any_df(profile, p15card, SC_AC_OP_ERASE, obj);
 		LOG_TEST_RET(ctx, r, "'ERASE' update DF failed");
 	}
@@ -2934,6 +2937,7 @@ sc_pkcs15init_delete_object(struct sc_pkcs15_card *p15card, struct sc_profile *p
 	df = obj->df;
 	if (df)   {
 		/* Unlink the object and update the DF */
+		sc_log(ctx, "unlinking object and updating DF");
 		sc_pkcs15_remove_object(p15card, obj);
 		sc_pkcs15_free_object(obj);
 	}
